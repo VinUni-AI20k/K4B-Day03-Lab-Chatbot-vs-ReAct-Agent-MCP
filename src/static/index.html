@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>MoodMix</title><link rel="stylesheet" href="/static/styles.css"></head>
+<body><main>
+  <section class="chat-panel"><header><div class="brand"><span>♪</span><div><strong>MoodMix</strong><small>Music discovery agent</small></div></div><div><button id="new-chat" class="quiet">New Chat</button><button id="clear-chat" class="quiet">Clear</button></div></header>
+    <div id="chat" class="chat"><div id="empty" class="empty"><h1>Find your next soundtrack.</h1><p>Ask MoodMix for songs, moods, or a playlist export.</p><div class="suggestions"><button>Top 10 songs for a happy day</button><button>Find 5 Linkin Park songs</button><button>Build a high-energy gym playlist</button><button>Create a chill late-night playlist</button></div></div></div>
+    <form id="composer"><textarea id="message" rows="1" placeholder="Message MoodMix..."></textarea><button id="send" aria-label="Send message">↑</button></form>
+  </section>
+  <aside class="playlist-panel"><div class="playlist-head"><div><p>GENERATED PLAYLIST</p><h2 id="playlist-title">Your queue</h2><span id="track-count">No tracks yet</span></div><span class="orb">♪</span></div><div id="export"></div><div id="tracks" class="tracks"><div class="playlist-empty">Your search results will appear here.</div></div></aside>
+</main><script src="/static/app.js"></script></body></html>

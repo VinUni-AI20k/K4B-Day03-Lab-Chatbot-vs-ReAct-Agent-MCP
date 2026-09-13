@@ -1,118 +1,96 @@
-"""
-🛠️ TOOL DEFINITIONS & EXECUTION BACKEND
-Mã nguồn chứa danh sách Tool Schemas (JSON Schema) và Execution Layer phục vụ cho MCP Server.
-"""
+"""Music tool schemas and small execution helpers for the MoodMix agent."""
 
+import csv
 import json
-from typing import Dict, Any
-
-# ==============================================================================
-# 1. KHAI BÁO TOOL SCHEMAS CHUẨN NATIVE JSON SCHEMA (TASK 1.2)
-# ==============================================================================
+from pathlib import Path
+from typing import Any, Dict
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import urlopen
 
 TOOLS_SCHEMA = [
-    # Tool 1: Đã được định nghĩa mẫu sẵn cho Học viên tham khảo
     {
-        "name": "academic_query",
-        "description": "Tra cứu hồ sơ và thông tin học vụ của sinh viên VinUni bằng mã sinh viên.",
+        "name": "search_tracks",
+        "description": "Search real songs in the iTunes catalog.",
         "parameters": {
             "type": "object",
             "properties": {
-                "student_id": {
-                    "type": "string",
-                    "description": "Mã sinh viên cần tra cứu (ví dụ: 'SV2026001')"
-                }
+                "query": {"type": "string", "description": "Song, artist, genre, or mood to search."},
+                "limit": {"type": "integer", "description": "Number of tracks, from 1 to 10.", "default": 5, "minimum": 1, "maximum": 10},
             },
-            "required": ["student_id"]
-        }
+            "required": ["query"],
+        },
     },
-    
-    # --------------------------------------------------------------------------
-    # TODO 1.2: HỌC VIÊN HOÀN THIỆN TOOL SCHEMA CHO 'schedule_appointment'
-    # 🎯 YÊU CẦU THIẾT KẾ SCHEMA (JSON SCHEMA STANDARD):
-    # 1. Tool dùng để đặt lịch hẹn tư vấn học vụ với Cố vấn học tập VinUni.
-    # 2. Thiết kế các tham số (properties) để LLM trích xuất:
-    #    - student_id (string): Mã sinh viên cần đặt lịch (ví dụ: 'SV2026001')
-    #    - datetime_str (string): Thời gian hẹn (ví dụ: '14:00 15/09/2026')
-    #    - advisor_name (string): Tên cố vấn học tập
-    # 3. Khai báo danh sách các trường bắt buộc (required).
-    # --------------------------------------------------------------------------
     {
-        "name": "schedule_appointment",
-        "description": "Đặt lịch hẹn tư vấn học vụ với Cố vấn học tập VinUni.",
+        "name": "export_playlist",
+        "description": "Export tracks from the latest search as a Soundiiz-importable CSV.",
         "parameters": {
             "type": "object",
             "properties": {
-                # TODO 1.2: Khai báo các thuộc tính tham số cho Tool tại đây...
+                "playlist_name": {"type": "string", "description": "Name for the exported playlist."},
+                "track_ids": {"type": "array", "items": {"type": "string"}, "description": "IDs returned by the latest search."},
             },
-            "required": [] # TODO 1.2: Khai báo danh sách các trường bắt buộc tại đây...
-        }
-    }
+            "required": ["playlist_name", "track_ids"],
+        },
+    },
 ]
 
-# ==============================================================================
-# 2. MÔ PHỎNG DỮ LIỆU & HÀM THỰC THI TOOL (EXECUTION LAYER)
-# ==============================================================================
+LATEST_TRACKS: Dict[str, Dict[str, Any]] = {}
+EXPORT_PATH = Path(__file__).resolve().parent.parent / "docs" / "playlist_export.csv"
 
-MOCK_DATABASE = {
-    "SV2026001": {
-        "full_name": "Nguyễn Văn An",
-        "class": "AI-K4",
-        "gpa": 3.85,
-        "email": "an.nv@vinuni.edu.vn",
-        "status": "Đang học",
-        "advisor": "PGS.TS Nguyễn Văn A"
-    },
-    "SV2026002": {
-        "full_name": "Trần Thị Bình",
-        "class": "AI-K4",
-        "gpa": 3.60,
-        "email": "binh.tt@vinuni.edu.vn",
-        "status": "Đang học",
-        "advisor": "TS. Lê Thị B"
+
+def _track(item: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "track_id": str(item.get("trackId", "")), "title": item.get("trackName", ""),
+        "artist": item.get("artistName", ""), "album": item.get("collectionName", ""),
+        "artwork_url": item.get("artworkUrl100", ""), "preview_url": item.get("previewUrl", ""),
+        "track_url": item.get("trackViewUrl", ""), "duration_seconds": round(item.get("trackTimeMillis", 0) / 1000),
     }
-}
 
 
-def execute_academic_query(student_id: str) -> str:
-    """Thực thi tra cứu học vụ theo mã sinh viên"""
-    student = MOCK_DATABASE.get(student_id.strip().upper())
-    if student:
-        return json.dumps({
-            "status": "SUCCESS",
-            "student_id": student_id,
-            "data": student
-        }, ensure_ascii=False)
-    else:
-        return json.dumps({
-            "status": "NOT_FOUND",
-            "message": f"Không tìm thấy dữ liệu sinh viên có mã '{student_id}'"
-        }, ensure_ascii=False)
+def execute_search_tracks(query: str, limit: int = 5) -> str:
+    """Search iTunes and keep only the newest normalized results in memory."""
+    if not isinstance(query, str) or not query.strip():
+        return json.dumps({"status": "ERROR", "message": "A non-empty search query is required."})
+    try:
+        limit = max(1, min(10, int(limit)))
+    except (TypeError, ValueError):
+        limit = 5
+    params = urlencode({"term": query.strip(), "media": "music", "entity": "song", "country": "VN", "limit": limit})
+    try:
+        with urlopen(f"https://itunes.apple.com/search?{params}", timeout=10) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except (HTTPError, URLError, TimeoutError, json.JSONDecodeError) as error:
+        return json.dumps({"status": "NETWORK_ERROR", "message": f"Could not search iTunes: {error}"})
+    tracks = [track for item in payload.get("results", []) if (track := _track(item))["track_id"]]
+    LATEST_TRACKS.clear()
+    LATEST_TRACKS.update({track["track_id"]: track for track in tracks})
+    return json.dumps({"status": "SUCCESS", "query": query.strip(), "track_count": len(tracks), "tracks": tracks}, ensure_ascii=False)
 
 
-def execute_schedule_appointment(student_id: str, datetime_str: str, advisor_name: str = "PGS.TS Nguyễn Văn A") -> str:
-    """Thực thi đặt lịch hẹn tư vấn học vụ"""
-    return json.dumps({
-        "status": "SUCCESS",
-        "booking_id": f"BK-{student_id}-99",
-        "student_id": student_id,
-        "datetime": datetime_str,
-        "advisor": advisor_name,
-        "message": f"Đặt lịch thành công cho sinh viên {student_id} với {advisor_name} vào lúc {datetime_str}."
-    }, ensure_ascii=False)
+def execute_export_playlist(playlist_name: str, track_ids: list[str]) -> str:
+    """Export selected latest-search tracks to a fixed CSV path."""
+    if not isinstance(playlist_name, str) or not playlist_name.strip():
+        return json.dumps({"status": "ERROR", "message": "A playlist name is required."})
+    selected = [LATEST_TRACKS[track_id] for track_id in track_ids if isinstance(track_id, str) and track_id in LATEST_TRACKS]
+    if not selected:
+        return json.dumps({"status": "ERROR", "message": "No valid track IDs were provided from the latest search."})
+    EXPORT_PATH.parent.mkdir(exist_ok=True)
+    with EXPORT_PATH.open("w", newline="", encoding="utf-8-sig") as output:
+        writer = csv.DictWriter(output, fieldnames=["title", "artist", "album", "url"])
+        writer.writeheader()
+        writer.writerows({"title": t["title"], "artist": t["artist"], "album": t["album"], "url": t["track_url"]} for t in selected)
+    return json.dumps({"status": "SUCCESS", "playlist_name": playlist_name.strip(), "file_path": "docs/playlist_export.csv", "track_count": len(selected), "tracks": selected}, ensure_ascii=False)
 
 
-# Router gọi tool thực tế
-TOOL_ROUTER = {
-    "academic_query": execute_academic_query,
-    "schedule_appointment": execute_schedule_appointment
-}
+TOOL_ROUTER = {"search_tracks": execute_search_tracks, "export_playlist": execute_export_playlist}
+
 
 def dispatch_tool_call(tool_name: str, arguments: Dict[str, Any]) -> str:
-    """Hàm trung chuyển thực thi tool"""
-    if tool_name in TOOL_ROUTER:
-        try:
-            return TOOL_ROUTER[tool_name](**arguments)
-        except Exception as e:
-            return json.dumps({"status": "EXECUTION_ERROR", "error": str(e)}, ensure_ascii=False)
-    return json.dumps({"status": "UNKNOWN_TOOL", "error": f"Tool '{tool_name}' không tồn tại!"}, ensure_ascii=False)
+    """Route a tool call and always return a JSON string."""
+    if tool_name not in TOOL_ROUTER:
+        return json.dumps({"status": "UNKNOWN_TOOL", "error": f"Tool '{tool_name}' does not exist."})
+    try:
+        return TOOL_ROUTER[tool_name](**arguments)
+    except Exception as error:
+        return json.dumps({"status": "EXECUTION_ERROR", "error": str(error)})

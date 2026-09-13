@@ -1,0 +1,7 @@
+[
+  {"id":"TC01","type":"direct_query","question":"What can MoodMix help me with?","expected_behavior":"Answers directly without a tool.","complexity":"Low"},
+  {"id":"TC02","type":"single_tool_search","question":"Find 5 songs by Linkin Park.","expected_behavior":"Calls search_tracks once and presents iTunes results.","complexity":"Medium"},
+  {"id":"TC03","type":"search_request","question":"Find Numb and Faint by Linkin Park.","expected_behavior":"Calls search_tracks for real matching tracks.","complexity":"Medium"},
+  {"id":"TC04","type":"multi_step_search_export","question":"Find 5 electronic songs suitable for a sports edit and export them as a playlist named Night Edit.","expected_behavior":"Calls search_tracks, then export_playlist, then gives a final answer.","complexity":"High"},
+  {"id":"TC05","type":"edge_case","question":"Find the song xyzabc999notasong.","expected_behavior":"Calls search_tracks and handles an empty result normally.","complexity":"Medium"}
+]
